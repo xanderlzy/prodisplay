@@ -4,7 +4,6 @@ struct MenuView: View {
     @Environment(AppModel.self) private var model
     @Namespace private var selection
     @State private var resolutionsExpanded = true
-    @State private var scalingExpanded = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -12,8 +11,10 @@ struct MenuView: View {
             brightness
             Hairline()
             resolutions
-            Hairline()
-            scaling
+            if model.refreshRates.count > 1 {
+                Hairline()
+                refreshRate
+            }
             if let message = model.errorMessage {
                 errorBanner(message)
             }
@@ -21,7 +22,7 @@ struct MenuView: View {
             footer
         }
         .frame(width: Theme.panelWidth)
-        .tint(.primary)
+        .tint(Color.ink)
     }
 
     // MARK: - Sections
@@ -32,7 +33,8 @@ struct MenuView: View {
                 .font(.system(size: 13, weight: .semibold))
             Spacer()
             if let key = model.currentKey {
-                Text("\(key.pixelWidth) × \(key.pixelHeight)")
+                // verbatim: no locale digit grouping ("2,298").
+                Text(verbatim: "\(key.width) × \(key.height)")
                     .font(.system(size: 11))
                     .monospacedDigit()
                     .foregroundStyle(Color.muted)
@@ -54,12 +56,6 @@ struct MenuView: View {
                 onChange: model.setSlider,
                 onEditingChanged: { model.isDraggingSlider = $0 }
             )
-            if model.activeCustom != nil, !model.xdrAvailable {
-                Text("XDR boost is paused while custom scaling is on.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color.muted)
-                    .transition(.opacity)
-            }
         }
         .padding(.horizontal, Theme.padding)
         .padding(.bottom, Theme.padding)
@@ -70,36 +66,30 @@ struct MenuView: View {
             sectionHeader("Resolution", expanded: $resolutionsExpanded)
 
             if resolutionsExpanded {
-                VStack(spacing: 8) {
+                VStack(spacing: 10) {
+                    hiDPISwitch
                     ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(spacing: 2) {
-                            ForEach(model.visibleGroups) { group in
-                                ResolutionRow(
-                                    title: "\(group.key.width) × \(group.key.height)",
-                                    detail: detail(for: group),
-                                    badge: group.isHiDPI ? "HiDPI" : nil,
-                                    selected: model.activeCustom == nil && group.key == model.currentKey,
-                                    namespace: selection,
-                                    matchID: "resolution"
-                                ) { model.select(group) }
-                                .id(group.key)
+                        ScrollView {
+                            VStack(spacing: 2) {
+                                ForEach(model.resolutionEntries) { entry in
+                                    ResolutionRow(
+                                        title: "\(entry.key.width) × \(entry.key.height)",
+                                        detail: detail(for: entry),
+                                        badge: entry.hiDPI == nil ? "No HiDPI" : nil,
+                                        selected: entry.contains(model.currentKey),
+                                        namespace: selection
+                                    ) { model.select(entry) }
+                                    .id(entry.id)
+                                }
                             }
                         }
-                    }
-                    .frame(maxHeight: 220)
-                    .scrollIndicators(.never)
-                    .onAppear {
-                        if let key = model.currentKey { proxy.scrollTo(key, anchor: .center) }
-                    }
-                    }
-
-                    if model.refreshRates.count > 1, model.activeCustom == nil {
-                        RefreshPicker(
-                            rates: model.refreshRates,
-                            selected: model.currentRefresh,
-                            onSelect: model.selectRefresh
-                        )
+                        // A ScrollView has no natural height, so the self-sizing menu window
+                        // collapses it to zero unless the height is given explicitly.
+                        .frame(height: listHeight)
+                        .scrollIndicators(.never)
+                        .onAppear {
+                            if let id = model.currentEntry?.id { proxy.scrollTo(id, anchor: .center) }
+                        }
                     }
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
@@ -108,36 +98,49 @@ struct MenuView: View {
         .padding(Theme.padding)
     }
 
-    private var scaling: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("HiDPI Scaling", expanded: $scalingExpanded)
+    private var listHeight: CGFloat {
+        let rowHeight: CGFloat = 43 // ResolutionRow (41) + spacing (2)
+        return min(CGFloat(model.resolutionEntries.count) * rowHeight, 220)
+    }
 
-            if scalingExpanded {
-                VStack(spacing: 2) {
-                    ResolutionRow(
-                        title: "Off",
-                        detail: "Use the resolutions above",
-                        badge: nil,
-                        selected: model.activeCustom == nil && model.applyingCustom == nil,
-                        namespace: selection,
-                        matchID: "scaling"
-                    ) {
-                        Task { await model.disableCustom() }
-                    }
-                    ForEach(model.customSizes) { size in
-                        ResolutionRow(
-                            title: size.label,
-                            detail: "\(size.width * 2) × \(size.height * 2) rendered",
-                            badge: "HiDPI",
-                            selected: model.activeCustom == size,
-                            namespace: selection,
-                            matchID: "scaling",
-                            busy: model.applyingCustom == size
-                        ) { model.applyCustom(size) }
-                    }
-                }
-                .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+    private var hiDPISwitch: some View {
+        HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("HiDPI")
+                    .font(.system(size: 12, weight: .medium))
+                Text(hiDPICaption)
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color.muted)
+                    .contentTransition(.opacity)
             }
+            Spacer()
+            Toggle("HiDPI", isOn: Binding(get: { model.isHiDPI }, set: model.setHiDPI))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .disabled(!model.canToggleHiDPI)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color.wash, in: RoundedRectangle(cornerRadius: Theme.rowRadius, style: .continuous))
+        .animation(Theme.spring, value: model.isHiDPI)
+    }
+
+    private var hiDPICaption: String {
+        if !model.canToggleHiDPI {
+            return model.isHiDPI ? "This size is HiDPI only" : "macOS has no HiDPI version of this size"
+        }
+        return model.isHiDPI ? "Sharp: 2 pixels per point" : "Lower resolution: 1 pixel per point"
+    }
+
+    private var refreshRate: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionLabel(title: "Refresh rate")
+            RefreshPicker(
+                rates: model.refreshRates,
+                selected: model.currentRefresh,
+                onSelect: model.selectRefresh
+            )
         }
         .padding(Theme.padding)
     }
@@ -195,10 +198,11 @@ struct MenuView: View {
         .buttonStyle(.plain)
     }
 
-    private func detail(for group: DisplayModeGroup) -> String {
+    /// Pixel size of the version that is (or would be) used, given the HiDPI switch.
+    private func detail(for entry: ResolutionEntry) -> String {
+        let group = entry.variants.first { $0.key == model.currentKey } ?? entry.variant(hiDPI: model.isHiDPI)
         var parts = ["\(group.key.pixelWidth) × \(group.key.pixelHeight)"]
-        if group.isDefault { parts.append("Default") }
-        if !group.isHiDPI { parts.append("Low resolution") }
+        if entry.isDefault { parts.append("Default") }
         return parts.joined(separator: " · ")
     }
 }
@@ -210,8 +214,6 @@ struct ResolutionRow: View {
     let badge: String?
     let selected: Bool
     let namespace: Namespace.ID
-    let matchID: String
-    var busy = false
     let action: () -> Void
 
     @State private var hovering = false
@@ -229,9 +231,7 @@ struct ResolutionRow: View {
                         .opacity(0.6)
                 }
                 Spacer()
-                if busy {
-                    ProgressView().controlSize(.mini)
-                } else if let badge {
+                if let badge {
                     Text(badge)
                         .font(.system(size: 9, weight: .semibold))
                         .tracking(0.4)
@@ -248,7 +248,7 @@ struct ResolutionRow: View {
                 if selected {
                     RoundedRectangle(cornerRadius: Theme.rowRadius, style: .continuous)
                         .fill(Color.ink)
-                        .matchedGeometryEffect(id: matchID, in: namespace)
+                        .matchedGeometryEffect(id: "selection", in: namespace)
                 } else if hovering {
                     RoundedRectangle(cornerRadius: Theme.rowRadius, style: .continuous)
                         .fill(Color.wash)

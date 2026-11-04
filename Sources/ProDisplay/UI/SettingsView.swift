@@ -2,54 +2,11 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
-    @State private var newWidth = ""
 
     var body: some View {
         @Bindable var model = model
 
         VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 10) {
-                SectionLabel(title: "HiDPI scaling sizes")
-                VStack(spacing: 2) {
-                    ForEach(model.customSizes) { size in
-                        HStack {
-                            Text(size.label).monospacedDigit()
-                            Spacer()
-                            Button {
-                                model.removeCustomSize(size)
-                            } label: {
-                                Image(systemName: "minus.circle")
-                            }
-                            .buttonStyle(QuietButtonStyle())
-                        }
-                        .font(.system(size: 12))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                    }
-                }
-                .background(Color.wash, in: RoundedRectangle(cornerRadius: Theme.rowRadius, style: .continuous))
-
-                HStack(spacing: 8) {
-                    TextField("Width in points", text: $newWidth)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit(add)
-                    if let w = Int(newWidth), w >= 800 {
-                        Text("× \(model.height(forWidth: w))")
-                            .monospacedDigit()
-                            .foregroundStyle(Color.muted)
-                            .transition(.opacity)
-                    }
-                    Button("Add", action: add)
-                        .buttonStyle(MonoButtonStyle(filled: true))
-                        .frame(width: 70)
-                }
-                .font(.system(size: 12))
-                .animation(Theme.quick, value: newWidth)
-            }
-
-            Hairline()
-
             VStack(alignment: .leading, spacing: 10) {
                 SectionLabel(title: "XDR boost limit")
                 HStack {
@@ -67,13 +24,16 @@ struct SettingsView: View {
             Hairline()
 
             VStack(alignment: .leading, spacing: 10) {
-                SectionLabel(title: "Brightness keys")
-                Toggle("Use ProDisplay for F1 / F2", isOn: $model.brightnessKeysBoost)
+                SectionLabel(title: "Keyboard")
+                Toggle("Use ProDisplay for brightness (F1 / F2)", isOn: $model.brightnessKeysBoost)
                     .toggleStyle(.switch)
                     .controlSize(.small)
-                if model.brightnessKeysBoost, !model.keyAccessGranted {
+                Toggle("Use ProDisplay for volume (F10–F12)", isOn: $model.volumeKeys)
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                if model.brightnessKeysBoost || model.volumeKeys, !model.keyAccessGranted {
                     HStack(spacing: 8) {
-                        Text("Needs Accessibility access to read the brightness keys.")
+                        Text("Needs Accessibility access to read the brightness and volume keys.")
                             .foregroundStyle(Color.muted)
                             .fixedSize(horizontal: false, vertical: true)
                         Button("Allow…", action: model.openAccessibilitySettings)
@@ -89,22 +49,19 @@ struct SettingsView: View {
             Hairline()
 
             VStack(alignment: .leading, spacing: 10) {
-                Toggle("Show all modes", isOn: $model.showLowResolution)
+                Toggle("Show below-notch sizes", isOn: $model.showLowResolution)
                 Toggle("Launch at login", isOn: $model.launchAtLogin)
             }
             .toggleStyle(.switch)
             .controlSize(.small)
+
+            Button("Show Welcome Again", action: model.showOnboarding)
+                .buttonStyle(QuietButtonStyle())
         }
         .font(.system(size: 12))
         .padding(24)
         .frame(width: 380)
-        .tint(.primary)
+        .tint(Color.ink)
         .onAppear { NSApp.activate(ignoringOtherApps: true) }
-    }
-
-    private func add() {
-        guard let w = Int(newWidth) else { return }
-        model.addCustomSize(width: w)
-        newWidth = ""
     }
 }

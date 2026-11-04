@@ -15,6 +15,7 @@ APP="$STAGE/ProDisplay.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/ProDisplay "$APP/Contents/MacOS/ProDisplay"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 xattr -cr "$APP"
 
 # Sign with the local self-signed certificate when present, so macOS permissions

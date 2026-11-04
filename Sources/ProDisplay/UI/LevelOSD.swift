@@ -2,14 +2,17 @@ import AppKit
 import Observation
 import SwiftUI
 
-/// Minimal on-screen indicator for brightness-key presses; replaces the macOS one.
+/// Minimal on-screen indicator for brightness and volume key presses; replaces the macOS one.
 @MainActor
-final class BrightnessOSD {
+final class LevelOSD {
     @Observable
     final class State {
+        var symbol = "sun.max"
+        /// 0...1, or up to 2 for brightness in the XDR range.
         var value = 1.0
         var percent = 100
-        var xdrAvailable = true
+        /// Shows the 100% tick and reserves the XDR part of the bar.
+        var showsXDRRange = true
         var visible = false
     }
 
@@ -17,7 +20,23 @@ final class BrightnessOSD {
     private var panel: NSPanel?
     private var hideTask: Task<Void, Never>?
 
-    func show(value: Double, xdrAvailable: Bool, percent: Int, on screen: NSScreen?) {
+    func showBrightness(value: Double, xdrAvailable: Bool, percent: Int, on screen: NSScreen?) {
+        show(symbol: value > 1 ? "sun.max.fill" : "sun.max", value: value, percent: percent,
+             showsXDRRange: xdrAvailable, on: screen)
+    }
+
+    func showVolume(level: Double, muted: Bool, on screen: NSScreen?) {
+        let symbol = switch muted ? 0 : level {
+        case 0: "speaker.slash.fill"
+        case ..<0.34: "speaker.wave.1.fill"
+        case ..<0.67: "speaker.wave.2.fill"
+        default: "speaker.wave.3.fill"
+        }
+        show(symbol: symbol, value: muted ? 0 : level, percent: muted ? 0 : Int((level * 100).rounded()),
+             showsXDRRange: false, on: screen)
+    }
+
+    private func show(symbol: String, value: Double, percent: Int, showsXDRRange: Bool, on screen: NSScreen?) {
         let panel = panel ?? makePanel()
         if let screen = screen ?? NSScreen.main {
             let size = panel.frame.size
@@ -29,9 +48,10 @@ final class BrightnessOSD {
         panel.orderFrontRegardless()
 
         withAnimation(Theme.spring) {
+            state.symbol = symbol
             state.value = value
             state.percent = percent
-            state.xdrAvailable = xdrAvailable
+            state.showsXDRRange = showsXDRRange
             state.visible = true
         }
 
@@ -68,16 +88,17 @@ final class BrightnessOSD {
 }
 
 private struct OSDView: View {
-    let state: BrightnessOSD.State
+    let state: LevelOSD.State
 
     private let barWidth: CGFloat = 150
-    private var sdrShare: CGFloat { state.xdrAvailable ? 0.72 : 1 }
+    private var sdrShare: CGFloat { state.showsXDRRange ? 0.72 : 1 }
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: state.value > 1 ? "sun.max.fill" : "sun.max")
+            Image(systemName: state.symbol)
                 .font(.system(size: 14, weight: .medium))
                 .contentTransition(.symbolEffect(.replace))
+                .frame(width: 22) // speaker symbols vary in width
 
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.wash)
@@ -85,7 +106,7 @@ private struct OSDView: View {
                     .fill(Color.ink)
                     .frame(width: max(6, position * barWidth))
                     .shadow(color: Color.ink.opacity(0.5 * glow), radius: 6 * glow)
-                if state.xdrAvailable {
+                if state.showsXDRRange {
                     Rectangle()
                         .fill(Color.white)
                         .frame(width: 1, height: 4)

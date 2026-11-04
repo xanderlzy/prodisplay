@@ -12,13 +12,24 @@ enum Theme {
 }
 
 extension Color {
+    // Plain black/white rather than system label colours: the menu bar panel applies
+    // vibrancy to label colours, which turns white fills grey.
     /// Primary text and fills: black in light mode, white in dark mode.
-    static let ink = Color.primary
+    static let ink = Color(nsColor: .monochrome(dark: .white, light: .black))
     /// The opposite of `ink`, for text on filled (selected) rows.
-    static let inkInverse = Color(nsColor: .windowBackgroundColor)
-    static let muted = Color.primary.opacity(0.5)
-    static let hairline = Color.primary.opacity(0.1)
-    static let wash = Color.primary.opacity(0.06)
+    static let inkInverse = Color(nsColor: .monochrome(dark: .black, light: .white))
+    static let muted = ink.opacity(0.5)
+    static let hairline = ink.opacity(0.1)
+    static let wash = ink.opacity(0.08)
+}
+
+private extension NSColor {
+    static func monochrome(dark: NSColor, light: NSColor) -> NSColor {
+        NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .vibrantDark, .aqua, .vibrantLight])
+                .map { [.darkAqua, .vibrantDark].contains($0) } == true ? dark : light
+        }
+    }
 }
 
 struct SectionLabel: View {

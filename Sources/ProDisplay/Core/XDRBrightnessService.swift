@@ -9,6 +9,8 @@ import QuartzCore
 /// (raising the backlight). The display's gamma table is then scaled above 1.0,
 /// which brightens all SDR content into the HDR headroom. Gamma changes reset
 /// automatically when the process exits.
+///
+/// This service applies values immediately; `BrightnessController` animates them.
 @MainActor
 final class XDRBrightnessService {
     /// Called when the boost is switched off for safety (heat or low battery).
@@ -16,15 +18,15 @@ final class XDRBrightnessService {
 
     private(set) var isActive = false
     private var display: CGDirectDisplayID = 0
-    private var target = 1.0
-    private var current = 1.0
+    /// The boost factor asked for, and the one applied (capped by the headroom macOS has granted so far).
+    private var requested = 1.0
+    private var applied = 1.0
     /// The display's colour table before boosting; the boost scales it.
     private var baseTable: (red: [CGGammaValue], green: [CGGammaValue], blue: [CGGammaValue])?
 
     private var triggerWindow: NSWindow?
     private var metalLayer: CAMetalLayer?
     private var commandQueue: MTLCommandQueue?
-    private var rampTimer: Timer?
     private var keepAliveTimer: Timer?
 
     func potentialHeadroom(for display: CGDirectDisplayID) -> Double {
@@ -32,21 +34,33 @@ final class XDRBrightnessService {
         return Double(screen.maximumPotentialExtendedDynamicRangeColorComponentValue)
     }
 
-    /// Sets the boost factor (1 = off). Changes ramp smoothly.
-    func setBoost(_ factor: Double, display: CGDirectDisplayID) {
+    /// True while macOS is still raising the panel's headroom toward the requested boost.
+    /// Callers keep calling `apply` each frame until this is false, so the boost glides in.
+    var isHeadroomLimited: Bool { isActive && applied < requested - 0.001 }
+
+    /// Applies a boost factor immediately (1 = off).
+    func apply(factor: Double, display: CGDirectDisplayID) {
         self.display = display
-        target = max(1, factor)
-        if target > 1, !isActive { activate() }
-        startRamp()
+        requested = max(1, factor)
+        guard requested > 1.0005 else {
+            deactivate()
+            return
+        }
+        if !isActive { activate() }
+        update()
     }
 
     /// Immediately removes the boost and restores the system colour tables.
     func reset() {
-        rampTimer?.invalidate()
-        rampTimer = nil
-        target = 1
-        current = 1
+        requested = 1
         deactivate()
+    }
+
+    private func update() {
+        let available = DisplayManager.screen(for: display)
+            .map { Double($0.maximumExtendedDynamicRangeColorComponentValue) } ?? 1
+        applied = min(requested, max(available, 1))
+        applyGamma(applied)
     }
 
     // MARK: - Lifecycle
@@ -87,9 +101,11 @@ final class XDRBrightnessService {
         isActive = true
         drawTrigger()
 
-        keepAliveTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.keepAlive() }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        keepAliveTimer = timer
     }
 
     private func deactivate() {
@@ -101,18 +117,20 @@ final class XDRBrightnessService {
         commandQueue = nil
         if isActive { CGDisplayRestoreColorSyncSettings() }
         isActive = false
+        applied = 1
         baseTable = nil
     }
 
     private func keepAlive() {
         if PowerMonitor.isThermallyConstrained || PowerMonitor.isBatteryLow() {
+            Log.brightness.notice("Boost dropped: safety stop (thermal state \(ProcessInfo.processInfo.thermalState.rawValue), battery low: \(PowerMonitor.isBatteryLow()))")
             reset()
             onSafetyStop?()
             return
         }
         // Night Shift, True Tone or other apps can rewrite the gamma table; re-assert ours.
         drawTrigger()
-        applyGamma(current)
+        update()
     }
 
     // MARK: - Rendering
@@ -126,41 +144,12 @@ final class XDRBrightnessService {
         pass.colorAttachments[0].texture = drawable.texture
         pass.colorAttachments[0].loadAction = .clear
         pass.colorAttachments[0].storeAction = .store
-        let v = max(2.0, target)
+        let v = max(2.0, requested)
         pass.colorAttachments[0].clearColor = MTLClearColor(red: v, green: v, blue: v, alpha: 1)
 
         buffer.makeRenderCommandEncoder(descriptor: pass)?.endEncoding()
         buffer.present(drawable)
         buffer.commit()
-    }
-
-    private func startRamp() {
-        guard rampTimer == nil else { return }
-        rampTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 120.0, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.stepRamp() }
-        }
-    }
-
-    private func stepRamp() {
-        // Exponential easing toward the target: about 250 ms to settle.
-        let available = DisplayManager.screen(for: display)
-            .map { Double($0.maximumExtendedDynamicRangeColorComponentValue) } ?? 1
-        let goal = min(target, max(available, 1))
-        current += (goal - current) * 0.12
-        if abs(goal - current) < 0.002 { current = goal }
-
-        if current <= 1.0005, target <= 1 {
-            rampTimer?.invalidate()
-            rampTimer = nil
-            current = 1
-            deactivate()
-            return
-        }
-        applyGamma(current)
-        if current == goal, goal == target {
-            rampTimer?.invalidate()
-            rampTimer = nil
-        }
     }
 
     // macOS 26 rejects CGSetDisplayTransferByFormula values above 1.0 (kCGErrorIllegalArgument),

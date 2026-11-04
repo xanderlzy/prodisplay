@@ -1,12 +1,16 @@
 import AppKit
 import ApplicationServices
 
-/// Intercepts the hardware brightness keys (F1/F2) with an event tap.
+enum MediaKey {
+    case brightnessUp, brightnessDown, volumeUp, volumeDown, mute
+}
+
+/// Intercepts the hardware brightness (F1/F2) and volume (F10–F12) keys with an event tap.
 /// `handler` decides per key press whether ProDisplay takes it (true) or macOS does (false);
 /// `fine` is true when ⌥⇧ is held (quarter steps, like macOS).
 @MainActor
-final class BrightnessKeyMonitor {
-    var handler: ((_ up: Bool, _ fine: Bool) -> Bool)?
+final class MediaKeyMonitor {
+    var handler: ((_ key: MediaKey, _ fine: Bool) -> Bool)?
     var onTrustChange: ((Bool) -> Void)?
 
     private(set) var tap: CFMachPort?
@@ -17,8 +21,13 @@ final class BrightnessKeyMonitor {
 
     private static let systemDefinedType: UInt32 = 14 // NX_SYSDEFINED
     private static let auxControlButtons: Int16 = 8   // NX_SUBTYPE_AUX_CONTROL_BUTTONS
-    private static let brightnessUp = 2               // NX_KEYTYPE_BRIGHTNESS_UP
-    private static let brightnessDown = 3             // NX_KEYTYPE_BRIGHTNESS_DOWN
+    private static let keys: [Int: MediaKey] = [
+        0: .volumeUp,       // NX_KEYTYPE_SOUND_UP
+        1: .volumeDown,     // NX_KEYTYPE_SOUND_DOWN
+        2: .brightnessUp,   // NX_KEYTYPE_BRIGHTNESS_UP
+        3: .brightnessDown, // NX_KEYTYPE_BRIGHTNESS_DOWN
+        7: .mute,           // NX_KEYTYPE_MUTE
+    ]
 
     static var isTrusted: Bool { AXIsProcessTrusted() }
 
@@ -69,7 +78,7 @@ final class BrightnessKeyMonitor {
             eventsOfInterest: mask,
             callback: { _, type, event, context in
                 guard let context else { return Unmanaged.passUnretained(event) }
-                let monitor = Unmanaged<BrightnessKeyMonitor>.fromOpaque(context).takeUnretainedValue()
+                let monitor = Unmanaged<MediaKeyMonitor>.fromOpaque(context).takeUnretainedValue()
                 // The tap is on the main run loop, so this runs on the main thread.
                 let swallow = MainActor.assumeIsolated { monitor.process(type: type, event: event) }
                 return swallow ? nil : Unmanaged.passUnretained(event)
@@ -96,12 +105,12 @@ final class BrightnessKeyMonitor {
         else { return false }
 
         let code = (ns.data1 & 0xFFFF_0000) >> 16
-        guard code == Self.brightnessUp || code == Self.brightnessDown else { return false }
+        guard let key = Self.keys[code] else { return false }
         let isDown = ((ns.data1 & 0xFF00) >> 8) == 0xA
 
         guard isDown else { return swallowed.remove(code) != nil }
         let fine = ns.modifierFlags.isSuperset(of: [.option, .shift])
-        if handler?(code == Self.brightnessUp, fine) == true {
+        if handler?(key, fine) == true {
             swallowed.insert(code)
             return true
         }

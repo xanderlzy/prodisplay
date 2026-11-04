@@ -28,6 +28,43 @@ struct DisplayModeGroup: Identifiable {
     }
 }
 
+/// One "looks like" size in the menu: its HiDPI and low-resolution versions merged.
+/// macOS sometimes offers the two versions a point apart (2298 × 1492 vs 2298 × 1493,
+/// 2420 × 1572 vs 2419 × 1571), so sizes within 2 points count as the same.
+struct ResolutionEntry: Identifiable {
+    let variants: [DisplayModeGroup]
+
+    var hiDPI: DisplayModeGroup? { variants.first(where: \.isHiDPI) }
+    var lowRes: DisplayModeGroup? { variants.first { !$0.isHiDPI } }
+    /// Labelled by the HiDPI version when there is one.
+    var key: ModeKey { (hiDPI ?? variants[0]).key }
+    var id: String { "\(key.width)x\(key.height)" }
+    var isDefault: Bool { variants.contains(where: \.isDefault) }
+
+    func contains(_ key: ModeKey?) -> Bool { variants.contains { $0.key == key } }
+
+    /// The version to use for a HiDPI preference, falling back to whichever exists.
+    func variant(hiDPI wantHiDPI: Bool) -> DisplayModeGroup {
+        (wantHiDPI ? hiDPI ?? lowRes : lowRes ?? hiDPI) ?? variants[0]
+    }
+
+    static func merging(_ groups: [DisplayModeGroup]) -> [ResolutionEntry] {
+        var entries: [[DisplayModeGroup]] = []
+        for group in groups.sorted(by: { ($0.key.width, $0.key.height) > ($1.key.width, $1.key.height) }) {
+            // Compare with every row, not just the previous one: other aspect ratios
+            // (e.g. below-notch sizes) can sort between two twins.
+            if let i = entries.firstIndex(where: { row in
+                row.contains { abs($0.key.width - group.key.width) <= 2 && abs($0.key.height - group.key.height) <= 2 }
+            }) {
+                entries[i].append(group)
+            } else {
+                entries.append([group])
+            }
+        }
+        return entries.map(ResolutionEntry.init)
+    }
+}
+
 struct DisplayModeService {
     private static let defaultModeFlag: UInt32 = 0x0000_0004 // kDisplayModeDefaultFlag
 

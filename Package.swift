@@ -5,11 +5,8 @@ let package = Package(
     name: "ProDisplay",
     platforms: [.macOS(.v14)],
     targets: [
-        // Declarations for Apple's private CGVirtualDisplay classes (implemented in CoreGraphics).
-        .target(name: "CGVirtualDisplayPrivate", path: "Sources/CGVirtualDisplayPrivate"),
         .executableTarget(
             name: "ProDisplay",
-            dependencies: ["CGVirtualDisplayPrivate"],
             path: "Sources/ProDisplay",
             linkerSettings: [
                 .linkedFramework("CoreGraphics"),
