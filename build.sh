@@ -2,6 +2,7 @@
 # Builds ProDisplay.app into ./build using SwiftPM (no Xcode required).
 # Usage: ./build.sh            build only
 #        ./build.sh install    build, then replace /Applications/ProDisplay.app and relaunch
+#        ./build.sh release    build, then zip it as build/ProDisplay-<version>.zip for a GitHub release
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -32,6 +33,14 @@ mkdir -p build
 rm -rf build/ProDisplay.app
 ditto "$APP" build/ProDisplay.app
 echo "Built build/ProDisplay.app"
+
+if [[ "${1:-}" == "release" ]]; then
+    VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" Resources/Info.plist)
+    ZIP="build/ProDisplay-$VERSION.zip"
+    rm -f "$ZIP"
+    ditto -c -k --keepParent "$APP" "$ZIP"
+    echo "Created $ZIP"
+fi
 
 if [[ "${1:-}" == "install" ]]; then
     pkill -x ProDisplay && sleep 1 || true

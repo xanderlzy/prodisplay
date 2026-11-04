@@ -1,0 +1,50 @@
+<p align="center">
+  <img src="design/icon/AppIcon-1024.png" width="128" alt="ProDisplay icon">
+</p>
+
+<h1 align="center">ProDisplay</h1>
+
+<p align="center">A minimal menu bar app that gets more out of your MacBook Pro display.</p>
+
+## Features
+
+- **Brighter than 100%.** On MacBook Pros with a Liquid Retina XDR display, one brightness slider goes from 0% up to 160% (adjustable), using the panel's HDR headroom for everyday content.
+- **Brightness keys go further.** F1 and F2 cover the whole range, with ProDisplay's own on-screen indicator and smooth fades.
+- **Volume keys.** F10, F11 and F12 control volume and mute with the same indicator.
+- **Every resolution.** Pick from all the scaled sizes macOS offers, including ones System Settings hides, plus a refresh-rate picker for ProMotion.
+- **HiDPI switch.** Flip the current size between sharp (2 pixels per point) and low resolution (1 pixel per point).
+- **Safety built in.** The brightness boost turns itself off when the Mac runs hot or the battery is low.
+
+## Requirements
+
+- A Mac with Apple Silicon running macOS 14 Sonoma or later
+- Extended brightness needs a Liquid Retina XDR display (14″ or 16″ MacBook Pro, M1 Pro or newer). On other Macs, resolutions, HiDPI and the volume keys still work.
+
+## Install
+
+1. Download `ProDisplay-<version>.zip` from the [latest release](../../releases/latest) and unzip it.
+2. Move **ProDisplay** to your **Applications** folder and open it.
+3. macOS will say it can't verify ProDisplay, because the app isn't notarized by Apple. Click **Done**, then open **System Settings › Privacy & Security**, scroll down and click **Open Anyway** next to the ProDisplay message. You only need to do this once.
+4. The welcome window walks you through allowing **Accessibility** access, which ProDisplay needs to read the brightness and volume keys. It only reacts to those keys.
+
+ProDisplay lives in the menu bar: click the ☀︎ icon.
+
+## Build from source
+
+Only the Xcode Command Line Tools are needed (`xcode-select --install`).
+
+```sh
+./build.sh            # builds build/ProDisplay.app
+./build.sh install    # also installs it to /Applications and launches it
+./build.sh release    # also creates build/ProDisplay-<version>.zip
+```
+
+## How it works
+
+- **Extended brightness:** a 1×1 pt HDR pixel switches the panel into EDR mode, then the display's colour table is scaled above 1.0 so ordinary content uses the extra headroom. Everything resets when the app quits.
+- **Brightness and volume keys:** an event tap reads the media keys; volume goes through CoreAudio.
+- ProDisplay uses some private macOS APIs (DisplayServices for brightness), so it isn't available on the Mac App Store and a future macOS update could break parts of it.
+
+## License
+
+[MIT](LICENSE)
