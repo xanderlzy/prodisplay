@@ -14,7 +14,7 @@
 - **Every resolution.** Pick from all the scaled sizes macOS offers, including ones System Settings hides, plus a refresh-rate picker for ProMotion.
 - **HiDPI switch.** Flip the current size between sharp (2 pixels per point) and low resolution (1 pixel per point).
 - **Safety built in.** The brightness boost turns itself off when the Mac runs hot or the battery is low.
-- **Automatic updates.** ProDisplay checks for new versions daily (via [Sparkle](https://sparkle-project.org)); you can also use **Check for Updates…** in the menu.
+- **Automatic updates.** ProDisplay checks for new versions daily (via [Sparkle](https://sparkle-project.org)); you can also check right away from **Settings › Check Now**.
 
 ## Requirements
 
