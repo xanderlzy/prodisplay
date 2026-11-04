@@ -51,6 +51,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Toggle("Show below-notch sizes", isOn: $model.showLowResolution)
                 Toggle("Launch at login", isOn: $model.launchAtLogin)
+                Toggle("Automatically check for updates", isOn: $model.automaticallyChecksForUpdates)
             }
             .toggleStyle(.switch)
             .controlSize(.small)

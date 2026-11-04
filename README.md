@@ -14,6 +14,7 @@
 - **Every resolution.** Pick from all the scaled sizes macOS offers, including ones System Settings hides, plus a refresh-rate picker for ProMotion.
 - **HiDPI switch.** Flip the current size between sharp (2 pixels per point) and low resolution (1 pixel per point).
 - **Safety built in.** The brightness boost turns itself off when the Mac runs hot or the battery is low.
+- **Automatic updates.** ProDisplay checks for new versions daily (via [Sparkle](https://sparkle-project.org)); you can also use **Check for Updates…** in the menu.
 
 ## Requirements
 
@@ -36,8 +37,10 @@ Only the Xcode Command Line Tools are needed (`xcode-select --install`).
 ```sh
 ./build.sh            # builds build/ProDisplay.app
 ./build.sh install    # also installs it to /Applications and launches it
-./build.sh release    # also creates build/ProDisplay-<version>.zip
+./build.sh release    # also creates build/ProDisplay-<version>.zip and build/appcast.xml
 ```
+
+Releases attach both files, so the update feed at `releases/latest/download/appcast.xml` always points to the newest version. The zip is signed with the maintainer's Sparkle key, so `release` only works on the maintainer's Mac.
 
 ## How it works
 

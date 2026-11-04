@@ -44,6 +44,9 @@ final class AppModel {
             updateKeyMonitor(prompt: true)
         }
     }
+    var automaticallyChecksForUpdates: Bool {
+        didSet { updater.automaticallyChecksForUpdates = automaticallyChecksForUpdates }
+    }
     var launchAtLogin: Bool {
         get { SMAppService.mainApp.status == .enabled }
         set {
@@ -80,6 +83,7 @@ final class AppModel {
     @ObservationIgnored private let keyMonitor = MediaKeyMonitor()
     @ObservationIgnored private let osd = LevelOSD()
     @ObservationIgnored private let onboarding = OnboardingWindow()
+    @ObservationIgnored private let updater = UpdaterService()
     @ObservationIgnored private var pollTimer: Timer?
 
     private enum Keys {
@@ -95,6 +99,7 @@ final class AppModel {
         maxBoostSetting = defaults.object(forKey: Keys.maxBoost) as? Double ?? 1.6
         brightnessKeysBoost = defaults.object(forKey: Keys.brightnessKeysBoost) as? Bool ?? true
         volumeKeys = defaults.object(forKey: Keys.volumeKeys) as? Bool ?? true
+        automaticallyChecksForUpdates = updater.automaticallyChecksForUpdates
         defaults.removeObject(forKey: "customSizes") // left over from the removed HiDPI scaling feature
 
         refreshDisplays()
@@ -258,6 +263,10 @@ final class AppModel {
         VolumeService.setMuted(muted, of: device)
         osd.showVolume(level: VolumeService.volume(of: device) ?? 0, muted: muted, on: NSScreen.main)
         return true
+    }
+
+    func checkForUpdates() {
+        updater.checkForUpdates()
     }
 
     func showOnboarding() {

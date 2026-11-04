@@ -172,6 +172,9 @@ struct MenuView: View {
             }
             .buttonStyle(QuietButtonStyle())
             Spacer()
+            Button("Check for Updates…", action: model.checkForUpdates)
+                .buttonStyle(QuietButtonStyle())
+                .padding(.trailing, 12)
             Button("Quit") { NSApp.terminate(nil) }
                 .buttonStyle(QuietButtonStyle())
         }
