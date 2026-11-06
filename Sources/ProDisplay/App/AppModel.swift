@@ -8,6 +8,16 @@ import SwiftUI
 final class AppModel {
     // Display
     private(set) var builtinID: CGDirectDisplayID?
+    /// Every display whose resolution can be changed, and the one the resolution controls act on.
+    private(set) var displays: [DisplayInfo] = []
+    private(set) var selectedDisplayID: CGDirectDisplayID?
+
+    // Custom resolutions for the selected display.
+    private(set) var customResolutions: [CustomResolution] = []
+    private(set) var activeCustom: CustomResolution?
+    private(set) var isApplyingCustom = false
+    /// Pixel shape new custom sizes follow (below the notch on the built-in screen).
+    private(set) var customAspect = CGSize(width: 16, height: 9)
     private(set) var modeGroups: [DisplayModeGroup] = []
     private(set) var currentKey: ModeKey?
     private(set) var currentRefresh: Double = 0
@@ -54,11 +64,20 @@ final class AppModel {
         }
     }
 
-    /// Sizes for the menu, one row each. By default only the full panel's aspect ratio
-    /// (not the below-notch variants); "show all" adds the rest.
+    var selectedDisplay: DisplayInfo? { displays.first { $0.id == selectedDisplayID } }
+
+    /// Sizes for the menu, one row each. By default only the display's native aspect ratio
+    /// (not the built-in panel's below-notch variants); "Show other aspect ratios" adds the rest.
     var resolutionEntries: [ResolutionEntry] {
         let aspect = nativePixelSize.width / nativePixelSize.height
         return ResolutionEntry.merging(modeGroups).filter { entry in
+            // While a custom size is on, the display reports it as one of its own modes;
+            // it's already listed under Custom.
+            if let activeCustom {
+                if abs(entry.key.width - activeCustom.width) <= 2 && abs(entry.key.height - activeCustom.height) <= 2 { return false }
+                let fullPanel = abs(Double(entry.key.width) / Double(entry.key.height) - aspect) < 0.01
+                return showLowResolution || fullPanel
+            }
             let fullPanel = abs(Double(entry.key.width) / Double(entry.key.height) - aspect) < 0.01
             return showLowResolution || fullPanel || entry.contains(currentKey)
         }
@@ -67,11 +86,18 @@ final class AppModel {
         ResolutionEntry.merging(modeGroups).first { $0.contains(currentKey) }
     }
     var isHiDPI: Bool {
-        modeGroups.first { $0.key == currentKey }?.isHiDPI ?? true
+        if let activeCustom { return activeCustom.hiDPI }
+        return modeGroups.first { $0.key == currentKey }?.isHiDPI ?? true
     }
     /// The HiDPI switch only works when the current size exists in both versions.
     var canToggleHiDPI: Bool {
-        currentEntry.map { $0.hiDPI != nil && $0.lowRes != nil } ?? false
+        guard activeCustom == nil else { return false }
+        return currentEntry.map { $0.hiDPI != nil && $0.lowRes != nil } ?? false
+    }
+    /// The "looks like" size in use, custom or not.
+    var currentSize: (width: Int, height: Int)? {
+        if let activeCustom { return (activeCustom.width, activeCustom.height) }
+        return currentKey.map { ($0.width, $0.height) }
     }
     var refreshRates: [Double] {
         modeGroups.first { $0.key == currentKey }?.refreshRates ?? []
@@ -84,6 +110,17 @@ final class AppModel {
     @ObservationIgnored private let osd = LevelOSD()
     @ObservationIgnored private let onboarding = OnboardingWindow()
     @ObservationIgnored private let updater = UpdaterService()
+    @ObservationIgnored private let confirmPanel = ResolutionConfirmPanel()
+    @ObservationIgnored private let custom = CustomResolutionService()
+    /// Saved custom sizes and the one in use, keyed by `DisplayManager.persistentKey`.
+    @ObservationIgnored private var savedCustom: [String: [CustomResolution]] = [:]
+    @ObservationIgnored private var activeCustomByDisplay: [String: CustomResolution] = [:]
+    /// Displays seen so far, to restore a custom resolution when one appears.
+    @ObservationIgnored private var knownDisplays: Set<CGDirectDisplayID> = []
+    /// Displays a custom resolution is being switched on or off for right now.
+    @ObservationIgnored private var customInFlight: Set<CGDirectDisplayID> = []
+    /// The last mode the user kept on an external display, restored if a change isn't confirmed.
+    @ObservationIgnored private var revertTarget: (display: CGDirectDisplayID, mode: CGDisplayMode)?
     @ObservationIgnored private var pollTimer: Timer?
 
     private enum Keys {
@@ -92,6 +129,8 @@ final class AppModel {
         static let brightnessKeysBoost = "brightnessKeysBoost"
         static let onboardingCompleted = "onboardingCompleted"
         static let volumeKeys = "volumeKeys"
+        static let customResolutions = "customResolutions"
+        static let activeCustomResolutions = "activeCustomResolutions"
     }
 
     init() {
@@ -100,7 +139,9 @@ final class AppModel {
         brightnessKeysBoost = defaults.object(forKey: Keys.brightnessKeysBoost) as? Bool ?? true
         volumeKeys = defaults.object(forKey: Keys.volumeKeys) as? Bool ?? true
         automaticallyChecksForUpdates = updater.automaticallyChecksForUpdates
-        defaults.removeObject(forKey: "customSizes") // left over from the removed HiDPI scaling feature
+        defaults.removeObject(forKey: "customSizes") // left over from the first HiDPI scaling feature
+        savedCustom = Self.decode(defaults.data(forKey: Keys.customResolutions)) ?? [:]
+        activeCustomByDisplay = Self.decode(defaults.data(forKey: Keys.activeCustomResolutions)) ?? [:]
 
         refreshDisplays()
         if let id = builtinID, let b = BrightnessService.brightness(of: id) {
@@ -142,20 +183,71 @@ final class AppModel {
 
     func refreshDisplays() {
         builtinID = DisplayManager.builtinDisplayID()
-        guard let id = builtinID else { return }
+        let list = DisplayManager.configurableDisplays()
+        if list != displays { withAnimation(Theme.spring) { displays = list } }
+        // Fall back to the built-in screen when the chosen display goes away.
+        if !list.contains(where: { $0.id == selectedDisplayID }) {
+            if let pending = revertTarget, pending.display == selectedDisplayID {
+                confirmPanel.cancel()
+                revertTarget = nil
+            }
+            selectedDisplayID = list.first?.id
+        }
+        custom.prune(keeping: list.map(\.id))
+        loadModes()
+        updateXDRAvailability()
+        restoreCustomResolutions(for: list)
+    }
+
+    /// Brings back the custom resolution a display last used, when it appears (at launch or on reconnect).
+    private func restoreCustomResolutions(for list: [DisplayInfo]) {
+        let ids = Set(list.map(\.id))
+        let appeared = ids.subtracting(knownDisplays)
+        knownDisplays = ids
+        for id in appeared where custom.active(on: id) == nil && !customInFlight.contains(id) {
+            guard let resolution = activeCustomByDisplay[DisplayManager.persistentKey(for: id)] else { continue }
+            enableCustom(resolution, on: id)
+        }
+    }
+
+    func selectDisplay(_ id: CGDirectDisplayID) {
+        guard id != selectedDisplayID, displays.contains(where: { $0.id == id }) else { return }
+        withAnimation(Theme.spring) {
+            selectedDisplayID = id
+            loadModes()
+        }
+    }
+
+    private func loadModes() {
+        guard let id = selectedDisplayID else {
+            modeGroups = []
+            currentKey = nil
+            customResolutions = []
+            activeCustom = nil
+            return
+        }
+        customResolutions = savedCustom[DisplayManager.persistentKey(for: id)] ?? []
+        activeCustom = custom.active(on: id)
 
         let groups = modes.groups(for: id)
         let current = modes.currentMode(for: id)
         // The panel's real size is its largest 1× mode; HiDPI modes can render above it.
         if let native = groups.filter({ !$0.isHiDPI }).max(by: { $0.key.pixelWidth < $1.key.pixelWidth }) {
             nativePixelSize = CGSize(width: native.key.pixelWidth, height: native.key.pixelHeight)
+            // On the built-in screen, mirrored content sits below the notch, so custom sizes use
+            // that shape (the panel's tallest 1× mode that is shorter than the full panel).
+            let belowNotch = CGDisplayIsBuiltin(id) != 0
+                ? groups.filter { !$0.isHiDPI && $0.key.pixelWidth == native.key.pixelWidth && $0.key.pixelHeight < native.key.pixelHeight }
+                    .max { $0.key.pixelHeight < $1.key.pixelHeight }
+                : nil
+            let shape = belowNotch?.key ?? native.key
+            customAspect = CGSize(width: shape.pixelWidth, height: shape.pixelHeight)
         }
         withAnimation(Theme.spring) {
             modeGroups = groups
             currentKey = current.map(ModeKey.init)
             currentRefresh = current?.refreshRate ?? 0
         }
-        updateXDRAvailability()
     }
 
     /// Picks a size, keeping the current HiDPI choice when that size allows it.
@@ -169,17 +261,137 @@ final class AppModel {
     }
 
     func select(_ group: DisplayModeGroup) {
-        guard let id = builtinID, let mode = group.mode(refreshRate: currentRefresh) else { return }
+        guard let id = selectedDisplayID, let mode = group.mode(refreshRate: currentRefresh) else { return }
         withAnimation(Theme.spring) { currentKey = group.key }
-        modes.apply(mode, to: id)
+        guard activeCustom != nil else { return apply(mode, to: id) }
+        // Leave the custom resolution first; the display's own modes apply once it is gone.
+        withAnimation(Theme.spring) { activeCustom = nil }
+        isApplyingCustom = true
+        Task {
+            await custom.disable(on: id)
+            activeCustomByDisplay[DisplayManager.persistentKey(for: id)] = nil
+            saveCustom()
+            isApplyingCustom = false
+            apply(mode, to: id)
+            refreshDisplays()
+        }
+    }
+
+    // MARK: - Custom resolutions
+
+    /// Valid widths for a new custom size on the selected display.
+    func customWidthRange(hiDPI: Bool) -> ClosedRange<Int> {
+        // Virtual displays top out around 8K pixels wide.
+        let maxPixels = 7680
+        return 640...(hiDPI ? maxPixels / 2 : maxPixels)
+    }
+
+    func customHeight(forWidth width: Int) -> Int {
+        Int((Double(width) * customAspect.height / customAspect.width).rounded())
+    }
+
+    /// Saves a new size for the selected display and switches to it.
+    func addCustom(width: Int, hiDPI: Bool) {
+        guard let id = selectedDisplayID, customWidthRange(hiDPI: hiDPI).contains(width) else { return }
+        let resolution = CustomResolution(width: width, height: customHeight(forWidth: width), hiDPI: hiDPI)
+        let key = DisplayManager.persistentKey(for: id)
+        var list = savedCustom[key] ?? []
+        if !list.contains(resolution) {
+            list.append(resolution)
+            list.sort { ($0.width, $0.hiDPI ? 1 : 0) > ($1.width, $1.hiDPI ? 1 : 0) }
+        }
+        savedCustom[key] = list
+        saveCustom()
+        withAnimation(Theme.spring) { customResolutions = list }
+        selectCustom(resolution)
+    }
+
+    func selectCustom(_ resolution: CustomResolution) {
+        guard let id = selectedDisplayID, resolution != activeCustom, !isApplyingCustom else { return }
+        enableCustom(resolution, on: id)
+    }
+
+    func removeCustom(_ resolution: CustomResolution) {
+        guard let id = selectedDisplayID else { return }
+        let key = DisplayManager.persistentKey(for: id)
+        savedCustom[key]?.removeAll { $0 == resolution }
+        if savedCustom[key]?.isEmpty == true { savedCustom[key] = nil }
+        withAnimation(Theme.spring) { customResolutions = savedCustom[key] ?? [] }
+        if activeCustom == resolution {
+            withAnimation(Theme.spring) { activeCustom = nil }
+            activeCustomByDisplay[key] = nil
+            isApplyingCustom = true
+            Task {
+                await custom.disable(on: id)
+                isApplyingCustom = false
+                refreshDisplays()
+            }
+        }
+        saveCustom()
+    }
+
+    private func enableCustom(_ resolution: CustomResolution, on id: CGDirectDisplayID) {
+        let key = DisplayManager.persistentKey(for: id)
+        let refresh = modeGroups.flatMap(\.refreshRates).max() ?? 60
+        if id == selectedDisplayID { withAnimation(Theme.spring) { activeCustom = resolution } }
+        isApplyingCustom = true
+        customInFlight.insert(id)
+        Task {
+            defer { customInFlight.remove(id) }
+            do {
+                try await custom.enable(resolution, on: id, refreshRate: refresh)
+                activeCustomByDisplay[key] = resolution
+            } catch {
+                // Don't retry a size that fails on every launch.
+                activeCustomByDisplay[key] = nil
+                withAnimation(Theme.spring) { errorMessage = error.localizedDescription }
+            }
+            saveCustom()
+            isApplyingCustom = false
+            refreshDisplays()
+        }
+    }
+
+    private func saveCustom() {
+        defaults.set(try? JSONEncoder().encode(savedCustom), forKey: Keys.customResolutions)
+        defaults.set(try? JSONEncoder().encode(activeCustomByDisplay), forKey: Keys.activeCustomResolutions)
+    }
+
+    private static func decode<T: Decodable>(_ data: Data?) -> T? {
+        data.flatMap { try? JSONDecoder().decode(T.self, from: $0) }
     }
 
     func selectRefresh(_ rate: Double) {
-        guard let id = builtinID,
+        guard let id = selectedDisplayID,
               let mode = modeGroups.first(where: { $0.key == currentKey })?.mode(refreshRate: rate)
         else { return }
         withAnimation(Theme.spring) { currentRefresh = rate }
-        modes.apply(mode, to: id)
+        apply(mode, to: id)
+    }
+
+    /// The built-in panel supports every mode it lists. An external monitor may not, and a mode
+    /// it can't show leaves it black, so external changes revert unless the user keeps them.
+    private func apply(_ mode: CGDisplayMode, to id: CGDirectDisplayID) {
+        let previous = modes.currentMode(for: id)
+        guard modes.apply(mode, to: id) else {
+            withAnimation(Theme.spring) { errorMessage = "macOS didn't accept that mode." }
+            refreshDisplays()
+            return
+        }
+        guard CGDisplayIsBuiltin(id) == 0 else { return }
+
+        // Several changes in a row revert to the mode from before the first one.
+        if revertTarget?.display != id, let previous {
+            revertTarget = (id, previous)
+        }
+        confirmPanel.show(on: id, keep: { [weak self] in
+            self?.revertTarget = nil
+        }, revert: { [weak self] in
+            guard let self, let target = self.revertTarget else { return }
+            self.revertTarget = nil
+            self.modes.apply(target.mode, to: target.display)
+            self.refreshDisplays()
+        })
     }
 
     // MARK: - Brightness

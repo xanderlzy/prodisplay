@@ -49,7 +49,7 @@ struct SettingsView: View {
             Hairline()
 
             VStack(alignment: .leading, spacing: 10) {
-                Toggle("Show below-notch sizes", isOn: $model.showLowResolution)
+                Toggle("Show other aspect ratios", isOn: $model.showLowResolution)
                 Toggle("Launch at login", isOn: $model.launchAtLogin)
                 HStack {
                     Toggle("Automatically check for updates", isOn: $model.automaticallyChecksForUpdates)

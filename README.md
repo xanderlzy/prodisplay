@@ -12,6 +12,8 @@
 - **Brightness keys go further.** F1 and F2 cover the whole range, with ProDisplay's own on-screen indicator and smooth fades.
 - **Volume keys.** F10, F11 and F12 control volume and mute with the same indicator.
 - **Every resolution.** Pick from all the scaled sizes macOS offers, including ones System Settings hides, plus a refresh-rate picker for ProMotion.
+- **External monitors.** With more than one display connected, pick a display at the top of the menu to change its resolution, HiDPI and refresh rate. A change on an external monitor asks "Keep this resolution?" and reverts after 15 seconds if you don't answer, so a mode the monitor can't show never leaves it black.
+- **Custom resolutions.** Type a width under Resolution › Custom (the height follows the display's shape), choose HiDPI or not, and ProDisplay switches to it and saves it to the list. Works on external monitors and the built-in screen. On the built-in screen a custom size puts a black bar over the notch area and turns off XDR brightness while it's on.
 - **HiDPI switch.** Flip the current size between sharp (2 pixels per point) and low resolution (1 pixel per point).
 - **Safety built in.** The brightness boost turns itself off when the Mac runs hot or the battery is low.
 - **Automatic updates.** ProDisplay checks for new versions daily (via [Sparkle](https://sparkle-project.org)); you can also check right away from **Settings › Check Now**.
@@ -45,8 +47,9 @@ Releases attach both files, so the update feed at `releases/latest/download/appc
 ## How it works
 
 - **Extended brightness:** a 1×1 pt HDR pixel switches the panel into EDR mode, then the display's colour table is scaled above 1.0 so ordinary content uses the extra headroom. Everything resets when the app quits.
+- **Custom resolutions:** Apple Silicon Macs only accept the modes a display reports, so ProDisplay draws the custom size on a private virtual display and mirrors the real display to it. Nothing is permanent: if ProDisplay quits, the display goes back to its normal mode (the custom size comes back on next launch).
 - **Brightness and volume keys:** an event tap reads the media keys; volume goes through CoreAudio.
-- ProDisplay uses some private macOS APIs (DisplayServices for brightness), so it isn't available on the Mac App Store and a future macOS update could break parts of it.
+- ProDisplay uses some private macOS APIs (DisplayServices for brightness, CGVirtualDisplay and SkyLight for custom resolutions), so it isn't available on the Mac App Store and a future macOS update could break parts of it.
 
 ## License
 

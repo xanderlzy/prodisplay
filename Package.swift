@@ -9,9 +9,14 @@ let package = Package(
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0"),
     ],
     targets: [
+        // Declarations for Apple's private CGVirtualDisplay classes (implemented in CoreGraphics).
+        .target(name: "CGVirtualDisplayPrivate", path: "Sources/CGVirtualDisplayPrivate"),
         .executableTarget(
             name: "ProDisplay",
-            dependencies: [.product(name: "Sparkle", package: "Sparkle")],
+            dependencies: [
+                "CGVirtualDisplayPrivate",
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
             path: "Sources/ProDisplay",
             linkerSettings: [
                 .linkedFramework("CoreGraphics"),
