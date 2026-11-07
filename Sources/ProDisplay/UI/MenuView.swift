@@ -97,7 +97,9 @@ struct MenuView: View {
                                         detail: detail(for: entry),
                                         badge: entry.hiDPI == nil ? "No HiDPI" : nil,
                                         selected: entry.contains(model.currentKey) && model.activeCustom == nil,
-                                        namespace: selection
+                                        namespace: selection,
+                                        isDefault: model.isDefault(entry),
+                                        onToggleDefault: { model.toggleDefault(entry) }
                                     ) { model.select(entry) }
                                     .id(entry.id)
                                 }
@@ -230,10 +232,13 @@ struct MenuView: View {
                     ForEach(model.customResolutions) { resolution in
                         ResolutionRow(
                             title: "\(resolution.width) × \(resolution.height)",
-                            detail: "\(resolution.pixelWidth) × \(resolution.pixelHeight)",
+                            detail: "\(resolution.pixelWidth) × \(resolution.pixelHeight)"
+                                + (model.isDefault(resolution) ? " · Default" : ""),
                             badge: resolution.hiDPI ? "HiDPI" : nil,
                             selected: model.activeCustom == resolution,
                             namespace: selection,
+                            isDefault: model.isDefault(resolution),
+                            onToggleDefault: { model.toggleDefault(resolution) },
                             onRemove: { model.removeCustom(resolution) }
                         ) { model.selectCustom(resolution) }
                     }
@@ -332,7 +337,12 @@ struct MenuView: View {
     private func detail(for entry: ResolutionEntry) -> String {
         let group = entry.variants.first { $0.key == model.currentKey } ?? entry.variant(hiDPI: model.isHiDPI)
         var parts = ["\(group.key.pixelWidth) × \(group.key.pixelHeight)"]
-        if entry.isDefault { parts.append("Default") }
+        // "Default" is the user's pinned size; macOS's own pick is named as such.
+        if model.isDefault(entry) {
+            parts.append("Default")
+        } else if entry.isDefault {
+            parts.append("macOS default")
+        }
         return parts.joined(separator: " · ")
     }
 }
@@ -344,6 +354,8 @@ struct ResolutionRow: View {
     let badge: String?
     let selected: Bool
     let namespace: Namespace.ID
+    var isDefault = false
+    var onToggleDefault: (() -> Void)? = nil
     var onRemove: (() -> Void)? = nil
     let action: () -> Void
 
@@ -370,6 +382,21 @@ struct ResolutionRow: View {
                         .padding(.vertical, 2)
                         .overlay(Capsule().strokeBorder(.foreground.opacity(0.4)))
                         .opacity(0.8)
+                }
+                // The pin stays on the default row and appears on others while hovered.
+                if let onToggleDefault, isDefault || hovering {
+                    Button(action: onToggleDefault) {
+                        Image(systemName: isDefault ? "pin.fill" : "pin")
+                            .font(.system(size: 9, weight: .semibold))
+                            .rotationEffect(.degrees(45))
+                            .opacity(isDefault ? 1 : 0.6)
+                            .frame(width: 16, height: 16)
+                            .contentShape(Rectangle())
+                            .contentTransition(.symbolEffect(.replace))
+                    }
+                    .buttonStyle(.plain)
+                    .help(isDefault ? "Remove as default" : "Set as default: used when ProDisplay opens or this display reconnects")
+                    .transition(.opacity)
                 }
                 if let onRemove, hovering {
                     Button(action: onRemove) {
@@ -401,6 +428,7 @@ struct ResolutionRow: View {
         .buttonStyle(.plain)
         .onHover { h in withAnimation(Theme.quick) { hovering = h } }
         .animation(Theme.spring, value: selected)
+        .animation(Theme.spring, value: isDefault)
     }
 }
 

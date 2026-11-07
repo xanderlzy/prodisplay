@@ -18,6 +18,8 @@ final class AppModel {
     private(set) var isApplyingCustom = false
     /// Pixel shape new custom sizes follow (below the notch on the built-in screen).
     private(set) var customAspect = CGSize(width: 16, height: 9)
+    /// The selected display's default size, applied at launch and when it reconnects.
+    private(set) var defaultResolution: DefaultResolution?
     private(set) var modeGroups: [DisplayModeGroup] = []
     private(set) var currentKey: ModeKey?
     private(set) var currentRefresh: Double = 0
@@ -115,7 +117,9 @@ final class AppModel {
     /// Saved custom sizes and the one in use, keyed by `DisplayManager.persistentKey`.
     @ObservationIgnored private var savedCustom: [String: [CustomResolution]] = [:]
     @ObservationIgnored private var activeCustomByDisplay: [String: CustomResolution] = [:]
-    /// Displays seen so far, to restore a custom resolution when one appears.
+    /// Default sizes, keyed by `DisplayManager.persistentKey`.
+    @ObservationIgnored private var defaultsByDisplay: [String: DefaultResolution] = [:]
+    /// Displays seen so far, to apply a default or custom resolution when one appears.
     @ObservationIgnored private var knownDisplays: Set<CGDirectDisplayID> = []
     /// Displays a custom resolution is being switched on or off for right now.
     @ObservationIgnored private var customInFlight: Set<CGDirectDisplayID> = []
@@ -131,6 +135,7 @@ final class AppModel {
         static let volumeKeys = "volumeKeys"
         static let customResolutions = "customResolutions"
         static let activeCustomResolutions = "activeCustomResolutions"
+        static let defaultResolutions = "defaultResolutions"
     }
 
     init() {
@@ -142,6 +147,7 @@ final class AppModel {
         defaults.removeObject(forKey: "customSizes") // left over from the first HiDPI scaling feature
         savedCustom = Self.decode(defaults.data(forKey: Keys.customResolutions)) ?? [:]
         activeCustomByDisplay = Self.decode(defaults.data(forKey: Keys.activeCustomResolutions)) ?? [:]
+        defaultsByDisplay = Self.decode(defaults.data(forKey: Keys.defaultResolutions)) ?? [:]
 
         refreshDisplays()
         if let id = builtinID, let b = BrightnessService.brightness(of: id) {
@@ -196,18 +202,46 @@ final class AppModel {
         custom.prune(keeping: list.map(\.id))
         loadModes()
         updateXDRAvailability()
-        restoreCustomResolutions(for: list)
+        restoreResolutions(for: list)
     }
 
-    /// Brings back the custom resolution a display last used, when it appears (at launch or on reconnect).
-    private func restoreCustomResolutions(for list: [DisplayInfo]) {
+    /// When a display appears (at launch or on reconnect), switches it to its default size,
+    /// or, without a default, brings back the custom resolution it last used.
+    private func restoreResolutions(for list: [DisplayInfo]) {
         let ids = Set(list.map(\.id))
         let appeared = ids.subtracting(knownDisplays)
         knownDisplays = ids
         for id in appeared where custom.active(on: id) == nil && !customInFlight.contains(id) {
-            guard let resolution = activeCustomByDisplay[DisplayManager.persistentKey(for: id)] else { continue }
-            enableCustom(resolution, on: id)
+            let key = DisplayManager.persistentKey(for: id)
+            switch defaultsByDisplay[key] {
+            case .custom(let resolution):
+                enableCustom(resolution, on: id)
+            case .mode(let modeKey, let rate):
+                // The default replaces whatever custom size was on when ProDisplay last quit.
+                if activeCustomByDisplay.removeValue(forKey: key) != nil { saveCustom() }
+                applyDefaultMode(modeKey, refreshRate: rate, to: id)
+            case nil:
+                if let resolution = activeCustomByDisplay[key] { enableCustom(resolution, on: id) }
+            }
         }
+    }
+
+    /// Switches without asking "Keep this resolution?": the user already chose this mode as the default.
+    private func applyDefaultMode(_ key: ModeKey, refreshRate: Double?, to id: CGDirectDisplayID) {
+        if let current = modes.currentMode(for: id), ModeKey(current) == key,
+           refreshRate.map({ abs(current.refreshRate - $0) < 0.01 }) ?? true {
+            return
+        }
+        guard let mode = modes.groups(for: id).first(where: { $0.key == key })?.mode(refreshRate: refreshRate ?? -1) else {
+            Log.brightness.notice("Default resolution \(key.width)×\(key.height) isn't offered by display \(id)")
+            return
+        }
+        guard modes.apply(mode, to: id) else {
+            Log.brightness.notice("macOS didn't accept the default resolution for display \(id)")
+            return
+        }
+        // At launch this runs before the reconfiguration callback is registered.
+        if id == selectedDisplayID { loadModes() }
     }
 
     func selectDisplay(_ id: CGDirectDisplayID) {
@@ -224,9 +258,11 @@ final class AppModel {
             currentKey = nil
             customResolutions = []
             activeCustom = nil
+            defaultResolution = nil
             return
         }
         customResolutions = savedCustom[DisplayManager.persistentKey(for: id)] ?? []
+        defaultResolution = defaultsByDisplay[DisplayManager.persistentKey(for: id)]
         activeCustom = custom.active(on: id)
 
         let groups = modes.groups(for: id)
@@ -314,6 +350,7 @@ final class AppModel {
     func removeCustom(_ resolution: CustomResolution) {
         guard let id = selectedDisplayID else { return }
         let key = DisplayManager.persistentKey(for: id)
+        if defaultResolution == .custom(resolution) { clearDefault() }
         savedCustom[key]?.removeAll { $0 == resolution }
         if savedCustom[key]?.isEmpty == true { savedCustom[key] = nil }
         withAnimation(Theme.spring) { customResolutions = savedCustom[key] ?? [] }
@@ -350,6 +387,40 @@ final class AppModel {
             isApplyingCustom = false
             refreshDisplays()
         }
+    }
+
+    // MARK: - Default resolution
+
+    func isDefault(_ entry: ResolutionEntry) -> Bool {
+        if case .mode(let key, _) = defaultResolution { return entry.contains(key) }
+        return false
+    }
+
+    func isDefault(_ resolution: CustomResolution) -> Bool {
+        defaultResolution == .custom(resolution)
+    }
+
+    /// Makes a size the selected display's default, or clears it if it already is.
+    /// Uses the version the row shows (current, else the one the HiDPI switch picks).
+    func toggleDefault(_ entry: ResolutionEntry) {
+        guard !isDefault(entry) else { return clearDefault() }
+        let group = entry.variants.first { $0.key == currentKey } ?? entry.variant(hiDPI: isHiDPI)
+        // Keep the refresh rate in use for the current size; otherwise take the highest.
+        let rate = group.key == currentKey && activeCustom == nil ? currentRefresh : nil
+        setDefault(.mode(group.key, refreshRate: rate))
+    }
+
+    func toggleDefault(_ resolution: CustomResolution) {
+        isDefault(resolution) ? clearDefault() : setDefault(.custom(resolution))
+    }
+
+    func clearDefault() { setDefault(nil) }
+
+    private func setDefault(_ value: DefaultResolution?) {
+        guard let id = selectedDisplayID else { return }
+        defaultsByDisplay[DisplayManager.persistentKey(for: id)] = value
+        defaults.set(try? JSONEncoder().encode(defaultsByDisplay), forKey: Keys.defaultResolutions)
+        withAnimation(Theme.spring) { defaultResolution = value }
     }
 
     private func saveCustom() {

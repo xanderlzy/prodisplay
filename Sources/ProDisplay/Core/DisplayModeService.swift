@@ -1,6 +1,6 @@
 import CoreGraphics
 
-struct ModeKey: Hashable {
+struct ModeKey: Codable, Hashable {
     let width: Int
     let height: Int
     let pixelWidth: Int
@@ -12,6 +12,13 @@ struct ModeKey: Hashable {
         pixelWidth = mode.pixelWidth
         pixelHeight = mode.pixelHeight
     }
+}
+
+/// The size a display switches to when ProDisplay starts or the display reconnects.
+enum DefaultResolution: Codable, Hashable {
+    /// One of the display's own modes; no refresh rate means the highest it offers.
+    case mode(ModeKey, refreshRate: Double?)
+    case custom(CustomResolution)
 }
 
 struct DisplayModeGroup: Identifiable {

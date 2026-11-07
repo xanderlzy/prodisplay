@@ -14,6 +14,7 @@
 - **Every resolution.** Pick from all the scaled sizes macOS offers, including ones System Settings hides, plus a refresh-rate picker for ProMotion.
 - **External monitors.** With more than one display connected, pick a display at the top of the menu to change its resolution, HiDPI and refresh rate. A change on an external monitor asks "Keep this resolution?" and reverts after 15 seconds if you don't answer, so a mode the monitor can't show never leaves it black.
 - **Custom resolutions.** Type a width under Resolution › Custom (the height follows the display's shape), choose HiDPI or not, and ProDisplay switches to it and saves it to the list. Works on external monitors and the built-in screen. On the built-in screen a custom size puts a black bar over the notch area and turns off XDR brightness while it's on.
+- **Default resolution.** Hover a size (built-in or custom) and click the pin to make it that display's default. ProDisplay switches to it whenever it opens or the display reconnects. Click the pin again to clear it.
 - **HiDPI switch.** Flip the current size between sharp (2 pixels per point) and low resolution (1 pixel per point).
 - **Safety built in.** The brightness boost turns itself off when the Mac runs hot or the battery is low.
 - **Automatic updates.** ProDisplay checks for new versions daily (via [Sparkle](https://sparkle-project.org)); you can also check right away from **Settings › Check Now**.
