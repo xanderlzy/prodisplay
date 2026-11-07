@@ -2,19 +2,33 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key><string>ProDisplay</string>
-    <key>CFBundleDisplayName</key><string>ProDisplay</string>
-    <key>CFBundleIdentifier</key><string>local.prodisplay.ProDisplay</string>
-    <key>CFBundleExecutable</key><string>ProDisplay</string>
-    <key>CFBundleIconFile</key><string>AppIcon</string>
-    <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.3.0</string>
-    <key>CFBundleVersion</key><string>3</string>
-    <key>LSMinimumSystemVersion</key><string>14.0</string>
-    <key>LSUIElement</key><true/>
-    <key>NSHighResolutionCapable</key><true/>
-    <key>SUFeedURL</key><string>https://github.com/xanderlzy/prodisplay/releases/latest/download/appcast.xml</string>
-    <key>SUPublicEDKey</key><string>n3ZPX9ALhdnVJdRS6IxdP3F/WgBo0kogzuaVJIEbNlY=</string>
-    <key>SUEnableAutomaticChecks</key><true/>
+	<key>CFBundleDisplayName</key>
+	<string>ProDisplay</string>
+	<key>CFBundleExecutable</key>
+	<string>ProDisplay</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>local.prodisplay.ProDisplay</string>
+	<key>CFBundleName</key>
+	<string>ProDisplay</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.4.0</string>
+	<key>CFBundleVersion</key>
+	<string>4</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://github.com/xanderlzy/prodisplay/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>n3ZPX9ALhdnVJdRS6IxdP3F/WgBo0kogzuaVJIEbNlY=</string>
 </dict>
 </plist>
